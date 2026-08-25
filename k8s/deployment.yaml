@@ -1,0 +1,129 @@
+# Kubernetes manifests for IBVAP deployment
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ibvap
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ibvap-config
+  namespace: ibvap
+data:
+  DEBUG: "False"
+  LOG_LEVEL: "INFO"
+  NIGHT_MODE_ENABLED: "True"
+  MAX_WORKERS: "4"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ibvap-secrets
+  namespace: ibvap
+type: Opaque
+stringData:
+  DATABASE_URL: postgresql://ibvap_user:ibvap_password@postgres:5432/ibvap_db
+  REDIS_URL: redis://redis:6379/0
+  SECRET_KEY: your-secret-key-change-in-production
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ibvap-backend
+  namespace: ibvap
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ibvap-backend
+  template:
+    metadata:
+      labels:
+        app: ibvap-backend
+    spec:
+      containers:
+      - name: backend
+        image: ibvap:backend
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - configMapRef:
+            name: ibvap-config
+        - secretRef:
+            name: ibvap-secrets
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ibvap-frontend
+  namespace: ibvap
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ibvap-frontend
+  template:
+    metadata:
+      labels:
+        app: ibvap-frontend
+    spec:
+      containers:
+      - name: frontend
+        image: ibvap:frontend
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 3000
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ibvap-backend-service
+  namespace: ibvap
+spec:
+  selector:
+    app: ibvap-backend
+  ports:
+  - port: 8000
+    targetPort: 8000
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ibvap-frontend-service
+  namespace: ibvap
+spec:
+  selector:
+    app: ibvap-frontend
+  ports:
+  - port: 80
+    targetPort: 3000
+  type: LoadBalancer
